@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>モンキーハンティング 3Dシミュレーター</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Roboto:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --monkey-color: #8b4513;
+            --ball-color: #eab308;
+            --hunter-color: #2563eb;
+        }
+        body { margin: 0; overflow: hidden; background-color: #f0f4f8; font-family: 'Noto Sans JP', sans-serif; }
+        canvas { display: block; touch-action: none; cursor: move; }
+        
+        .controls {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(8px);
+            padding: 20px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            width: 95%;
+            max-width: 900px;
+            z-index: 100;
+            border: 1px solid rgba(255,255,255,0.5);
+            transition: all 0.1s ease;
+        }
+        .controls.is-playing {
+            background: transparent;
+            backdrop-filter: blur(0px);
+            box-shadow: none;
+            border-color: transparent;
+        }
+        .hide-on-play {
+            transition: opacity 0.1s ease;
+        }
+        .controls.is-playing .hide-on-play {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #info, .view-label, .instructions {
+            transition: opacity 0.1s ease;
+        }
+        .control-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: center; }
+        .slider-group { display: flex; flex-direction: column; min-width: 140px; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #e2e8f0; }
+        .slider-label { font-size: 12px; font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;}
+        .val-display { font-family: 'Roboto', sans-serif; font-size: 16px; font-weight: 700; }
+        
+        input[type=range] { width: 100%; cursor: pointer; }
+        
+        .btn {
+            min-width: 80px;
+            min-height: 44px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            background: var(--primary);
+            color: white;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .btn:hover { background: var(--primary-hover); transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.15); }
+        .btn:active { transform: translateY(1px); box-shadow: none; }
+        .btn.secondary { background: #64748b; }
+        .btn.secondary:hover { background: #475569; }
+        
+        .view-btn { background: #f1f5f9; color: #475569; font-weight: 700; box-shadow: none; border: 1px solid #cbd5e1; }
+        .view-btn:hover { background: #e2e8f0; }
+        .btn-top.active { background: #10b981; color: white; border-color: #10b981; }
+        .btn-hunter.active { background: var(--hunter-color); color: white; border-color: var(--hunter-color); }
+        .btn-ball.active { background: var(--ball-color); color: #1f2937; border-color: var(--ball-color); }
+        .btn-monkey.active { background: var(--monkey-color); color: white; border-color: var(--monkey-color); }
+
+        .info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(4px);
+            color: #f8fafc;
+            padding: 16px;
+            border-radius: 12px;
+            pointer-events: none;
+            font-size: 14px;
+            line-height: 1.6;
+            z-index: 50;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .info-panel strong { color: #38bdf8; font-size: 16px; margin-bottom: 4px; display: inline-block; }
+
+        .view-label {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #ef4444;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 14px;
+            z-index: 50;
+            box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
+        }
+        .instructions {
+            position: absolute;
+            top: 64px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            pointer-events: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .slider-monkey { accent-color: var(--monkey-color); }
+        .slider-ball { accent-color: var(--ball-color); }
+        .slider-hunter { accent-color: var(--hunter-color); }
+        .slider-env { accent-color: #64748b; }
+        
+        .text-monkey { color: var(--monkey-color); }
+        .text-ball { color: #b45309; } /* 視認性の高い濃い黄色/オレンジ */
+        .text-hunter { color: var(--hunter-color); }
+        .text-env { color: #475569; }
+    </style>
+</head>
+<body>
+
+<div class="info-panel" id="info">
+    <strong>モンキーハンティング 3D</strong><br>
+    ハンターの発射口は常に原点(0,0,0)に固定されています。<br>
+    猿の位置を調整して、狙いを定めましょう。
+</div>
+
+<div class="view-label" id="viewLabel">全体視点</div>
+<div class="instructions">マウスドラッグで視点移動</div>
+
+<div class="controls" id="mainControls">
+    <!-- 物理・猿の位置設定 -->
+    <div class="control-row hide-on-play">
+        <div class="slider-group">
+            <span class="slider-label text-monkey"><span>猿の距離 (x)</span> <span><span id="mxVal" class="val-display">15</span> m</span></span>
+            <input type="range" id="mxSlider" class="slider-monkey" min="5" max="30" step="1" value="15" oninput="updateParams()">
+        </div>
+        <div class="slider-group">
+            <span class="slider-label text-monkey"><span>猿の高さ (y)</span> <span><span id="myVal" class="val-display">10</span> m</span></span>
+            <input type="range" id="mySlider" class="slider-monkey" min="2" max="20" step="1" value="10" oninput="updateParams()">
+        </div>
+        <div class="slider-group">
+            <span class="slider-label text-ball"><span>初速度 (v<sub>0</sub>)</span> <span><span id="v0Val" class="val-display">20</span> m/s</span></span>
+            <input type="range" id="v0Slider" class="slider-ball" min="5" max="40" step="1" value="20" oninput="updateParams()">
+        </div>
+        <div class="slider-group">
+            <span class="slider-label text-ball"><span>発射角度 (θ)</span> <span><span id="angleVal" class="val-display">33</span> °</span></span>
+            <input type="range" id="angleSlider" class="slider-ball" min="0" max="85" step="1" value="33" oninput="updateParams()">
+        </div>
+        <div class="slider-group">
+            <span class="slider-label text-env"><span>重力加速度 (g)</span> <span><span id="gVal" class="val-display">9.8</span> m/s²</span></span>
+            <input type="range" id="gSlider" class="slider-env" min="0" max="20" step="0.1" value="9.8" oninput="updateParams()">
+        </div>
+    </div>
+
+    <!-- アクション・視点切り替え -->
+    <div class="control-row border-t border-gray-200 pt-4 transition-colors duration-100" id="actionRow">
+        <button class="btn hide-on-play" onclick="togglePlay()" id="playBtn">スタート</button>
+        
+        <!-- リセットボタンだけは非表示クラスをつけない -->
+        <button class="btn secondary" onclick="resetSim()">リセット</button>
+        
+        <label class="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer bg-gray-100 hover:bg-gray-200 transition px-3 py-2 rounded-lg border border-gray-300 hide-on-play">
+            <input type="checkbox" id="floorlessMode" class="w-4 h-4 text-blue-600 rounded cursor-pointer">
+            発射時に床を消す
+        </label>
+
+        <div class="h-8 w-px bg-gray-300 mx-2 hide-on-play"></div>
+        <button class="btn view-btn btn-top active hide-on-play" id="view-top" onclick="setView('top')">全体</button>
+        <button class="btn view-btn btn-hunter hide-on-play" id="view-hunter" onclick="setView('hunter')">ハンター</button>
+        <button class="btn view-btn btn-ball hide-on-play" id="view-ball" onclick="setView('ball')">小球</button>
+        <button class="btn view-btn btn-monkey hide-on-play" id="view-monkey" onclick="setView('monkey')">猿</button>
+    </div>
+</div>
+
+<script>
+    let scene, camera, renderer, ball, monkeyGroup, aimingLine, environmentGroup;
+    let hunterMaster, hunterGroup, hunterArm, hHead;
+    let isPlaying = false;
+    let time = 0;
+    let viewMode = 'top';
+    
+    // 物理演算用変数
+    let ballVel = new THREE.Vector3();
+    let monkeyVel = new THREE.Vector3();
+    let hunterVelY = 0;
+    let hasCollided = false;
+    let isFloorless = false;
+
+    // カメラ制御用 (初期視点を真横に設定: theta=90度, phi=90度)
+    let theta = Math.PI / 2;
+    let phi = Math.PI / 2;
+    let radius = 35;
+    let isMouseDown = false;
+    let onMouseDownPosition = { x: 0, y: 0 };
+    let onMouseDownTheta = 0;
+    let onMouseDownPhi = 0;
+
+    let config = {
+        v0: 20,
+        angleDeg: 33,
+        g: 9.8,
+        mx: 15,
+        my: 10
+    };
+    
+    const ballInitialPos = { x: 0, y: 0.5, z: 0 }; // 銃口付近
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb);
+
+        camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const light = new THREE.DirectionalLight(0xffffff, 0.6);
+        light.position.set(20, 30, 10);
+        light.castShadow = true;
+        scene.add(light);
+
+        // 床と環境（木など）をまとめるグループ
+        environmentGroup = new THREE.Group();
+        scene.add(environmentGroup);
+
+        // 床
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshPhongMaterial({ color: 0x77aa77 }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        environmentGroup.add(floor);
+
+        // 雲の生成
+        const cloudGeo = new THREE.SphereGeometry(1, 8, 8); // 軽くするため分割数を少なく
+        const cloudMat = new THREE.MeshPhongMaterial({ 
+            color: 0xffffff, 
+            flatShading: true, 
+            transparent: true, 
+            opacity: 0.9 
+        });
+
+        // 20個ほどの雲を上空にランダムに配置
+        for (let i = 0; i < 20; i++) {
+            const cloud = new THREE.Group();
+            
+            // 雲のモコモコを作るために複数の球を組み合わせる
+            const numPuffs = 3 + Math.floor(Math.random() * 4);
+            for (let j = 0; j < numPuffs; j++) {
+                const puff = new THREE.Mesh(cloudGeo, cloudMat);
+                puff.position.set(
+                    (Math.random() - 0.5) * 4,
+                    (Math.random() - 0.5) * 1.5,
+                    (Math.random() - 0.5) * 4
+                );
+                const scale = 2 + Math.random() * 2;
+                puff.scale.set(scale, scale, scale);
+                cloud.add(puff);
+            }
+
+            // 配置位置（上空）
+            cloud.position.set(
+                (Math.random() - 0.5) * 200, // X
+                30 + Math.random() * 40,     // Y (高さ30〜70)
+                (Math.random() - 0.5) * 200  // Z
+            );
+            
+            cloud.rotation.y = Math.random() * Math.PI;
+            // 雲全体を少し平べったくする
+            const globalScale = 1.5 + Math.random() * 2;
+            cloud.scale.set(globalScale, globalScale * 0.6, globalScale);
+
+            environmentGroup.add(cloud);
+        }
+
+        // 座標軸表示 (X:赤, Y:緑, Z:青)
+        const axesHelper = new THREE.AxesHelper(50);
+        scene.add(axesHelper);
+
+        // ハンター全体をまとめるグループ
+        hunterMaster = new THREE.Group();
+
+        // 人間（ハンター）の構築
+        hunterGroup = new THREE.Group();
+        const shirtMat = new THREE.MeshPhongMaterial({ color: 0x2563eb });
+        const skinMat = new THREE.MeshPhongMaterial({ color: 0xfcb096 });
+        const pantsMat = new THREE.MeshPhongMaterial({ color: 0x1e3a8a });
+
+        const hBody = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.5, 16), shirtMat);
+        hBody.position.set(-0.4, 0.45, 0);
+        hunterGroup.add(hBody);
+
+        hHead = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16), skinMat);
+        hHead.position.set(-0.4, 0.85, 0);
+        hunterGroup.add(hHead);
+
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.3, 16), pantsMat);
+        leg.position.set(-0.4, 0.15, 0);
+        hunterGroup.add(leg);
+        hunterMaster.add(hunterGroup);
+
+        // 腕と銃（発射地点 兼 回転軸）
+        hunterArm = new THREE.Group();
+        hunterArm.position.set(0, 0.5, 0); 
+        
+        const armR = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 8), shirtMat);
+        armR.rotation.z = Math.PI / 2;
+        armR.position.set(-0.25, 0, 0.15);
+        hunterArm.add(armR);
+        
+        const armL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 8), shirtMat);
+        armL.rotation.z = Math.PI / 2;
+        armL.position.set(-0.25, 0, -0.15);
+        hunterArm.add(armL);
+
+        const gunMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.2, 16), new THREE.MeshPhongMaterial({ color: 0x222222 }));
+        gunMesh.rotation.z = Math.PI / 2;
+        gunMesh.position.set(0.4, 0, 0);
+        hunterArm.add(gunMesh);
+        hunterMaster.add(hunterArm);
+        
+        scene.add(hunterMaster);
+
+        // 小球 (ポップな銃弾)
+        ball = new THREE.Mesh(new THREE.SphereGeometry(0.4, 32, 32), new THREE.MeshPhongMaterial({ color: 0xffdf00, emissive: 0xaa8800 }));
+        ball.castShadow = true;
+        scene.add(ball);
+
+        // 猿 (猿っぽく構築)
+        monkeyGroup = new THREE.Group();
+        const brownMat = new THREE.MeshPhongMaterial({ color: 0x8b4513 });
+        const tanMat = new THREE.MeshPhongMaterial({ color: 0xd2b48c });
+        
+        // 胴体
+        const bodyMain = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.6, 16), brownMat);
+        const bodyTop = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), brownMat);
+        const bodyBottom = new THREE.Mesh(new THREE.SphereGeometry(0.4, 16, 16), brownMat);
+        bodyTop.position.y = 0.3;
+        bodyBottom.position.y = -0.3;
+        monkeyGroup.add(bodyMain);
+        monkeyGroup.add(bodyTop);
+        monkeyGroup.add(bodyBottom);
+        
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), brownMat);
+        head.position.y = 0.8;
+        monkeyGroup.add(head);
+
+        const face = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), tanMat);
+        face.position.set(0.2, 0.85, 0);
+        monkeyGroup.add(face);
+
+        const mArmL = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1, 8), brownMat);
+        mArmL.position.set(0, 0.3, 0.5);
+        mArmL.rotation.x = Math.PI / 4;
+        monkeyGroup.add(mArmL);
+        
+        const mArmR = mArmL.clone();
+        mArmR.position.z = -0.5;
+        mArmR.rotation.x = -Math.PI / 4;
+        monkeyGroup.add(mArmR);
+
+        monkeyGroup.castShadow = true;
+        scene.add(monkeyGroup);
+
+        // 照準線
+        const lineMat = new THREE.LineDashedMaterial({ color: 0xff0000, dashSize: 0.5, gapSize: 0.3 });
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(1,0,0)]);
+        aimingLine = new THREE.Line(lineGeo, lineMat);
+        scene.add(aimingLine);
+
+        setupInteractions();
+        updateParams();
+        resetSim();
+        window.addEventListener('resize', onWindowResize, false);
+        animate();
+    }
+
+    function setupInteractions() {
+        const el = renderer.domElement;
+        el.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            onMouseDownPosition.x = e.clientX;
+            onMouseDownPosition.y = e.clientY;
+            onMouseDownTheta = theta;
+            onMouseDownPhi = phi;
+        });
+        window.addEventListener('mouseup', () => isMouseDown = false);
+        window.addEventListener('mousemove', (e) => {
+            if (!isMouseDown || viewMode !== 'top') return;
+            theta = -((e.clientX - onMouseDownPosition.x) * 0.01) + onMouseDownTheta;
+            phi = ((e.clientY - onMouseDownPosition.y) * 0.01) + onMouseDownPhi;
+            phi = Math.max(0.1, Math.min(Math.PI / 2, phi)); // 真横（90度）まで許容
+        });
+        // タッチ対応
+        el.addEventListener('touchstart', (e) => {
+            isMouseDown = true;
+            onMouseDownPosition.x = e.touches[0].clientX;
+            onMouseDownPosition.y = e.touches[0].clientY;
+            onMouseDownTheta = theta;
+            onMouseDownPhi = phi;
+        }, {passive: false});
+        window.addEventListener('touchend', () => isMouseDown = false);
+        window.addEventListener('touchmove', (e) => {
+            if (!isMouseDown || viewMode !== 'top') return;
+            theta = -((e.touches[0].clientX - onMouseDownPosition.x) * 0.01) + onMouseDownTheta;
+            phi = ((e.touches[0].clientY - onMouseDownPosition.y) * 0.01) + onMouseDownPhi;
+            phi = Math.max(0.1, Math.min(Math.PI / 2, phi)); // 真横（90度）まで許容
+        }, {passive: false});
+    }
+
+    function updateParams() {
+        config.mx = parseFloat(document.getElementById('mxSlider').value);
+        config.my = parseFloat(document.getElementById('mySlider').value);
+        config.v0 = parseFloat(document.getElementById('v0Slider').value);
+        config.angleDeg = parseFloat(document.getElementById('angleSlider').value);
+        config.g = parseFloat(document.getElementById('gSlider').value);
+
+        document.getElementById('mxVal').innerText = config.mx;
+        document.getElementById('myVal').innerText = config.my;
+        document.getElementById('v0Val').innerText = config.v0;
+        document.getElementById('angleVal').innerText = config.angleDeg;
+        document.getElementById('gVal').innerText = config.g;
+
+        const rad = config.angleDeg * (Math.PI / 180);
+        hunterArm.rotation.z = rad;
+
+        if (!isPlaying) {
+            monkeyGroup.position.set(config.mx, config.my, 0);
+            updateAimingLine();
+        }
+    }
+
+    function updateAimingLine() {
+        const rad = config.angleDeg * (Math.PI / 180);
+        const length = 50;
+        const targetX = Math.cos(rad) * length;
+        const targetY = 0.5 + Math.sin(rad) * length;
+        const points = [new THREE.Vector3(0, 0.5, 0), new THREE.Vector3(targetX, targetY, 0)];
+        aimingLine.geometry.setFromPoints(points);
+        aimingLine.computeLineDistances();
+    }
+
+    function resetSim() {
+        isPlaying = false;
+        time = 0;
+        hasCollided = false;
+        document.getElementById('playBtn').innerText = 'スタート';
+        ball.position.copy(ballInitialPos);
+        monkeyGroup.position.set(config.mx, config.my, 0);
+        
+        if (hunterMaster) {
+            hunterMaster.position.y = 0;
+            hunterVelY = 0;
+        }
+
+        if (environmentGroup) environmentGroup.visible = true;
+        setView('top');
+        aimingLine.visible = true;
+
+        // UIを表示状態に戻す
+        document.getElementById('mainControls').classList.remove('is-playing');
+        document.getElementById('actionRow').classList.replace('border-transparent', 'border-gray-200');
+        document.getElementById('info').style.opacity = '1';
+        document.getElementById('viewLabel').style.opacity = '1';
+        document.querySelector('.instructions').style.opacity = '1';
+    }
+
+    function togglePlay() {
+        if (!isPlaying && time === 0) {
+            aimingLine.visible = false;
+            isFloorless = document.getElementById('floorlessMode').checked;
+            if (isFloorless && environmentGroup) environmentGroup.visible = false;
+
+            // 初速度ベクトルを設定
+            const rad = config.angleDeg * (Math.PI / 180);
+            ballVel.set(config.v0 * Math.cos(rad), config.v0 * Math.sin(rad), 0);
+            monkeyVel.set(0, 0, 0);
+            hunterVelY = 0;
+            hasCollided = false;
+
+            // 発射時にパネルを透過させ、リセットボタン以外を消す
+            document.getElementById('mainControls').classList.add('is-playing');
+            document.getElementById('actionRow').classList.replace('border-gray-200', 'border-transparent');
+            document.getElementById('info').style.opacity = '0';
+            document.getElementById('viewLabel').style.opacity = '0';
+            document.querySelector('.instructions').style.opacity = '0';
+        }
+        isPlaying = !isPlaying;
+        document.getElementById('playBtn').innerText = isPlaying ? '一時停止' : 'スタート';
+    }
+
+    function setView(mode) {
+        viewMode = mode;
+        const labels = { 'top': '全体視点（ドラッグで移動）', 'hunter': 'ハンターの視点', 'ball': '小球の視点', 'monkey': '猿の視点' };
+        document.getElementById('viewLabel').innerText = labels[mode];
+        document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById(`view-${mode}`).classList.add('active');
+        if (mode === 'top') {
+            theta = Math.PI / 2; phi = Math.PI / 2; // リセット時も真横に戻す
+        }
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        if (isPlaying) {
+            const dt = 0.016; // 約60FPSの固定ステップで物理演算
+            time += dt;
+
+            // 1. 重力による速度の更新
+            ballVel.y -= config.g * dt;
+            monkeyVel.y -= config.g * dt;
+            if (isFloorless) hunterVelY -= config.g * dt;
+
+            // 2. 速度による位置の更新
+            ball.position.addScaledVector(ballVel, dt);
+            monkeyGroup.position.addScaledVector(monkeyVel, dt);
+            if (isFloorless) hunterMaster.position.y += hunterVelY * dt;
+
+            // 3. 猿と球の衝突判定と反発計算
+            const dist = ball.position.distanceTo(monkeyGroup.position);
+            const minD = 0.9; // 衝突半径の閾値
+            
+            if (!hasCollided && dist < minD) {
+                hasCollided = true;
+                
+                // 衝突時の法線ベクトル
+                const n = new THREE.Vector3().subVectors(monkeyGroup.position, ball.position).normalize();
+                // 相対速度
+                const v_rel = new THREE.Vector3().subVectors(monkeyVel, ballVel);
+                const vn = v_rel.dot(n); // 接近速度
+                
+                if (vn < 0) { // 近づいている場合のみ反発させる
+                    const e = 0.7; // 反発係数
+                    const m_ball = 1.0; // 球の質量
+                    const m_monkey = 3.0; // 猿の質量
+                    
+                    // 力積の計算
+                    const j = -(1 + e) * vn / (1/m_ball + 1/m_monkey);
+                    const J = n.clone().multiplyScalar(j);
+                    
+                    // 速度の更新
+                    ballVel.sub(J.clone().multiplyScalar(1 / m_ball));
+                    monkeyVel.add(J.clone().multiplyScalar(1 / m_monkey));
+                    
+                    // めり込みの解消
+                    const overlap = minD - dist;
+                    const correction = n.clone().multiplyScalar(overlap / 2);
+                    monkeyGroup.position.add(correction);
+                    ball.position.sub(correction);
+                }
+            }
+
+            // 4. 床との衝突判定とバウンド処理
+            if (!isFloorless) {
+                // 球のバウンド
+                if (ball.position.y < 0.4) {
+                    ball.position.y = 0.4;
+                    ballVel.y *= -0.6; // 反発
+                    ballVel.x *= 0.9;  // 摩擦
+                }
+                // 猿のバウンド (モデルの下端を考慮して0.7)
+                if (monkeyGroup.position.y < 0.7) {
+                    monkeyGroup.position.y = 0.7;
+                    monkeyVel.y *= -0.4; // 反発
+                    monkeyVel.x *= 0.8;  // 摩擦
+                }
+                
+                // 微小な速度は0にして完全に静止させる
+                if (Math.abs(ballVel.y) < 0.1 && ball.position.y <= 0.4) ballVel.y = 0;
+                if (Math.abs(monkeyVel.y) < 0.1 && monkeyGroup.position.y <= 0.7) monkeyVel.y = 0;
+            } else {
+                // 床なしモード時、はるか下まで落ちたら自動で一時停止
+                if (ball.position.y < -150 && monkeyGroup.position.y < -150) {
+                    isPlaying = false;
+                    document.getElementById('playBtn').innerText = 'スタート';
+                }
+            }
+        }
+
+        // 視点に応じたモデルの表示/非表示（一人称視点の際に自分の内側が見えないようにする）
+        ball.visible = (viewMode !== 'ball');
+        monkeyGroup.visible = (viewMode !== 'monkey');
+        if (hHead) hHead.visible = (viewMode !== 'hunter'); // ハンター視点時はハンターの頭を隠す
+
+        if (viewMode === 'top') {
+            // カメラの注視点を設定 (通常時は固定)
+            let targetX = config.mx / 2;
+            let targetY = config.my / 2;
+            let offsetY = 0;
+            
+            // 床なしモードで、球のY座標が0を下回った時のみ、その分だけカメラを下げる
+            if (isPlaying && isFloorless && ball.position.y < 0) {
+                offsetY = ball.position.y;
+            }
+
+            // カメラの位置を注視点ベースで計算
+            camera.position.x = targetX + radius * Math.sin(phi) * Math.cos(theta);
+            camera.position.y = targetY + radius * Math.cos(phi) + offsetY;
+            camera.position.z = radius * Math.sin(phi) * Math.sin(theta);
+            camera.lookAt(targetX, targetY + offsetY, 0);
+
+        } else if (viewMode === 'hunter') {
+            // ハンターの完全な視点（頭の位置から前を見る）
+            const camY = 0.85 + hunterMaster.position.y;
+            camera.position.set(-0.4, camY, 0);
+            
+            // カメラを球に追従させず、発射角度（弾道）と完全に平行な方向を常に見つめるように固定する
+            // これにより、自身も落下している際に球が等速直線運動しているように見える
+            const rad = config.angleDeg * (Math.PI / 180);
+            camera.lookAt(-0.4 + Math.cos(rad) * 10, camY + Math.sin(rad) * 10, 0);
+            
+        } else if (viewMode === 'ball') {
+            // 小球の完全な視点
+            camera.position.copy(ball.position);
+            camera.lookAt(monkeyGroup.position);
+        } else if (viewMode === 'monkey') {
+            // 猿の完全な視点
+            camera.position.copy(monkeyGroup.position).add(new THREE.Vector3(0, 0.8, 0));
+            camera.lookAt(ball.position);
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    window.onload = init;
+</script>
+
+</body>
+</html>
